@@ -2,9 +2,12 @@
 # Build arguments
 # =============================================
 ARG UBUNTU_VERSION=focal
+ARG GO_VERSION=1.22.2
 
 # =============================================
 FROM ubuntu:${UBUNTU_VERSION} AS base
+
+ARG GO_VERSION
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -19,6 +22,14 @@ RUN apt-get update && apt-get install -y \
     sudo \
     wget \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Go
+RUN wget https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go${GO_VERSION}.linux-amd64.tar.gz && \
+    rm go${GO_VERSION}.linux-amd64.tar.gz
+
+# Add Go to the system PATH
+ENV PATH="/usr/local/go/bin:${PATH}"
 
 # =============================================
 FROM base AS with_user
