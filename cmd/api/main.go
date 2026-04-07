@@ -10,6 +10,7 @@ import (
 
 	_ "github.com/lib/pq" // The Postgres driver
 	"github.com/redis/go-redis/v9"
+	"github.com/segmentio/kafka-go"
 )
 
 // LocationUpdate represents the JSON we expect from a vehicle
@@ -25,8 +26,10 @@ var (
 	ctx = context.Background() // Required by the Redis client
 )
 
+var kafkaWriter *kafka.Writer
+
 func main() {
-	// 1. Connect to the PostgreSQL container
+	// Connect to the PostgreSQL container
 	connStr := "postgres://fleet_admin:fleet_password@db:5432/fleet_db?sslmode=disable"
 	var err error
 	db, err = sql.Open("postgres", connStr)
@@ -35,7 +38,7 @@ func main() {
 	}
 	defer db.Close()
 
-	// 2. Connect to Redis
+	// Connect to Redis
 	rdb = redis.NewClient(&redis.Options{
 		Addr:     "redis:6379", // Matches the service name in docker-compose
 		Password: "",           // No password set
@@ -47,13 +50,21 @@ func main() {
 		log.Fatal("Failed to connect to Redis:", err)
 	}
 
-	// 3. Set up routes
+	// Set up Kafka Writer (Producer) to send messages to the worker
+	kafkaWriter = &kafka.Writer{
+		Addr:     kafka.TCP("kafka:9092"),
+		Topic:    "incoming-locations",
+		Balancer: &kafka.LeastBytes{},
+	}
+	defer kafkaWriter.Close()
+
+	// Set up routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /location", saveLocation)
 	mux.HandleFunc("GET /check-zone", checkZone)
 	mux.HandleFunc("GET /latest-location", getLatestLocation)
 
-	// 4. Start the server
+	// Start the server
 	fmt.Println("🚀 Go Engine running on port 8080...")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
@@ -66,30 +77,24 @@ func saveLocation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Step A: Save to PostgreSQL (Long-term memory)
-	// PostGIS spatial math: ST_MakePoint takes (Longitude, Latitude)
-	// ST_SetSRID sets the spatial reference system to standard GPS (4326)
-	pgQuery := `
-		INSERT INTO vehicle_history (vehicle_id, location) 
-		VALUES ($1, ST_SetSRID(ST_MakePoint($2, $3), 4326))
-	`
-	_, err := db.Exec(pgQuery, loc.VehicleID, loc.Lon, loc.Lat)
+	// Turn the struct back into a byte slice to send over Kafka
+	payload, _ := json.Marshal(loc)
+
+	// Step A: Publish message to Kafka and return IMMEDIATELY
+	err := kafkaWriter.WriteMessages(context.Background(),
+		kafka.Message{
+			Key:   []byte(loc.VehicleID), // Using VehicleID as key ensures ordered processing per vehicle
+			Value: payload,
+		},
+	)
+
 	if err != nil {
-		http.Error(w, "Failed to save to database", http.StatusInternalServerError)
+		http.Error(w, "Failed to publish to Kafka", http.StatusInternalServerError)
 		return
 	}
 
-	// Step B: Save to Redis (Short-term memory)
-	// We use a Redis Hash to store the vehicle's lat/lon against its ID
-	cacheKey := fmt.Sprintf("vehicle:%s", loc.VehicleID)
-	err = rdb.HSet(ctx, cacheKey, "lat", loc.Lat, "lon", loc.Lon).Err()
-	if err != nil {
-		// We just log the error; we don't want to fail the request if just the cache fails
-		log.Printf("Warning: Failed to cache location for %s: %v\n", loc.VehicleID, err)
-	}
-
-	w.WriteHeader(http.StatusCreated)
-	fmt.Fprintf(w, "Location saved and cached for %s!\n", loc.VehicleID)
+	w.WriteHeader(http.StatusAccepted) // 202 Accepted (we accepted it, but processing happens later)
+	fmt.Fprintf(w, "Location queued for %s!\n", loc.VehicleID)
 }
 
 // Check if a vehicle is inside a specific geofence
