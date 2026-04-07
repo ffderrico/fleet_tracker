@@ -1,0 +1,15 @@
+{
+	"name": "Fleet Tracker Dev Container",
+	"dockerComposeFile": "docker-compose.yml",
+	"service": "workspace",
+	"workspaceFolder": "/workspaces/fleet-tracker",
+	"remoteUser": "${localEnv:USER}",
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"mtxr.sqltools",
+				"mtxr.sqltools-driver-pg"
+			]
+		}
+	}
+}

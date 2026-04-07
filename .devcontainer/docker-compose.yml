@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  workspace:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - USERNAME=${USER:-devuser}
+    volumes:
+      - ../:/workspaces/fleet-tracker:cached
+    command: sleep infinity
+    depends_on:
+      - db
+
+  # The PostGIS Database
+  db:
+    image: postgis/postgis:15-3.3
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: fleet_admin
+      POSTGRES_PASSWORD: fleet_password
+      POSTGRES_DB: fleet_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
