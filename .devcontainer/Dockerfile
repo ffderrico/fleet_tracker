@@ -2,7 +2,7 @@
 # Build arguments
 # =============================================
 ARG UBUNTU_VERSION=focal
-ARG GO_VERSION=1.22.2
+ARG GO_VERSION=1.23.0
 
 # =============================================
 FROM ubuntu:${UBUNTU_VERSION} AS base
