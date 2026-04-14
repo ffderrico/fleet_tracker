@@ -1,0 +1,15 @@
+# Build stage
+FROM golang:1.23.0 AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+# Compile the API statically
+RUN CGO_ENABLED=0 GOOS=linux go build -o /fleet-api ./cmd/api/main.go
+
+# Final stage (Tiny production image)
+FROM alpine:latest
+WORKDIR /root/
+COPY --from=builder /fleet-api .
+EXPOSE 8080
+CMD ["./fleet-api"]
