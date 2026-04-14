@@ -1,0 +1,53 @@
+---
+# Go API
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-api
+spec:
+  replicas: 2 # Let's run 2 instances of your API for high availability!
+  selector:
+    matchLabels:
+      app: fleet-api
+  template:
+    metadata:
+      labels:
+        app: fleet-api
+    spec:
+      containers:
+      - name: api
+        image: fleet-api:1.0
+        imagePullPolicy: Never # Tells K8s to use the image we loaded, not Docker Hub
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fleet-api
+spec:
+  type: LoadBalancer
+  selector:
+    app: fleet-api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+# Go Worker
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fleet-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fleet-worker
+  template:
+    metadata:
+      labels:
+        app: fleet-worker
+    spec:
+      containers:
+      - name: worker
+        image: fleet-worker:1.0
+        imagePullPolicy: Never
