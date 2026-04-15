@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 
+	"github.com/gorilla/websocket"
 	_ "github.com/lib/pq" // The Postgres driver
 	"github.com/redis/go-redis/v9"
 	"github.com/segmentio/kafka-go"
@@ -24,6 +26,16 @@ var (
 	db  *sql.DB
 	rdb *redis.Client
 	ctx = context.Background() // Required by the Redis client
+)
+
+var (
+	// Upgrades HTTP to WebSocket and allows connections from any browser for local dev
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	// A map to store all active browser connections
+	clients   = make(map[*websocket.Conn]bool)
+	clientsMu sync.Mutex // Prevents crashes if two browsers connect at the exact same millisecond
 )
 
 var kafkaWriter *kafka.Writer
@@ -66,6 +78,7 @@ func main() {
 	mux.HandleFunc("POST /location", saveLocation)
 	mux.HandleFunc("GET /check-zone", checkZone)
 	mux.HandleFunc("GET /latest-location", getLatestLocation)
+	mux.HandleFunc("GET /ws", handleConnections)
 
 	// Start the server
 	fmt.Println("🚀 Go Engine running on port 8080...")
@@ -157,7 +170,46 @@ func listenToRedisPubSub() {
 
 	for msg := range ch {
 		fmt.Printf("🔥 API heard broadcast: %s\n", msg.Payload)
-		// Later, instead of just printing this,
-		// we will push it through the WebSockets to the browsers!
+
+		// Push the payload to every connected browser
+		clientsMu.Lock()
+		for client := range clients {
+			err := client.WriteMessage(websocket.TextMessage, []byte(msg.Payload))
+			if err != nil {
+				// If writing fails, the connection is dead, so we drop them
+				client.Close()
+				delete(clients, client)
+			}
+		}
+		clientsMu.Unlock()
+	}
+}
+
+// WebSocket Handler
+func handleConnections(w http.ResponseWriter, r *http.Request) {
+	// Upgrade the HTTP request to a WebSocket
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("❌ WebSocket upgrade error:", err)
+		return
+	}
+	defer ws.Close()
+
+	// Register the new browser
+	clientsMu.Lock()
+	clients[ws] = true
+	clientsMu.Unlock()
+	fmt.Println("🔌 New browser connected via WebSocket!")
+
+	// Keep the connection alive and listen for disconnects
+	for {
+		_, _, err := ws.ReadMessage()
+		if err != nil {
+			clientsMu.Lock()
+			delete(clients, ws)
+			clientsMu.Unlock()
+			fmt.Println("🔌 Browser disconnected.")
+			break
+		}
 	}
 }
