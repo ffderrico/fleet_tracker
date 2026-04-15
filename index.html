@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fleet Tracker Live Map</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #1e1e1e; color: white;}
+        h1 { text-align: center; padding: 10px; margin: 0; background: #333; }
+        /* The map needs a defined height to show up */
+        #map { height: 80vh; width: 100%; } 
+        #status { text-align: center; padding: 10px; font-weight: bold; color: #00ff00; }
+    </style>
+</head>
+<body>
+    <h1>🛴 Fleet Tracker Mission Control</h1>
+    <div id="status">Connecting to Radar...</div>
+    <div id="map"></div>
+
+    <script>
+        // 1. Initialize the Map
+        // Centered around -20.81, -49.37 with a zoom level of 14
+        const map = L.map('map').setView([-20.81, -49.37], 14);
+
+        // 2. Load the Street Tiles (using OpenStreetMap)
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap'
+        }).addTo(map);
+
+        // 3. A dictionary to keep track of our scooter markers
+        const markers = {};
+
+        // 4. Connect the WebSocket
+        const socket = new WebSocket("ws://localhost:8080/ws");
+        const statusDiv = document.getElementById('status');
+
+        socket.onopen = function(e) {
+            statusDiv.innerText = "✅ Radar Online - Waiting for vehicles...";
+        };
+
+        socket.onmessage = function(event) {
+            const loc = JSON.parse(event.data);
+            
+            // If the scooter already has a marker, just move it!
+            if (markers[loc.vehicle_id]) {
+                markers[loc.vehicle_id].setLatLng([loc.lat, loc.lon]);
+                statusDiv.innerText = `📡 ${loc.vehicle_id} moved!`;
+            } else {
+                // If this is a new scooter, create a new marker
+                const marker = L.marker([loc.lat, loc.lon]).addTo(map);
+                marker.bindPopup(`<b>${loc.vehicle_id}</b>`).openPopup();
+                markers[loc.vehicle_id] = marker;
+                statusDiv.innerText = `🚨 New vehicle detected: ${loc.vehicle_id}`;
+            }
+
+            // Make the map camera smoothly follow the scooter
+            map.panTo([loc.lat, loc.lon]);
+        };
+
+        socket.onclose = function(event) {
+            statusDiv.innerText = "❌ Radar Offline. Connection lost.";
+            statusDiv.style.color = "red";
+        };
+    </script>
+</body>
+</html>
