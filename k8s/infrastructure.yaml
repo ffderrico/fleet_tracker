@@ -1,4 +1,15 @@
 ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
 # PostgreSQL
 apiVersion: apps/v1
 kind: Deployment
@@ -8,6 +19,8 @@ spec:
   selector:
     matchLabels:
       app: db
+  strategy:
+    type: Recreate # Prevents two DBs from trying to write to the exact same file during a restart
   template:
     metadata:
       labels:
@@ -23,6 +36,13 @@ spec:
           value: "fleet_password"
         - name: POSTGRES_DB
           value: "fleet_db"
+        volumeMounts:
+        - mountPath: /var/lib/postgresql/data
+          name: pgdata
+      volumes:
+      - name: pgdata
+        persistentVolumeClaim:
+          claimName: postgres-pvc
 ---
 apiVersion: v1
 kind: Service
