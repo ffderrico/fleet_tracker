@@ -50,6 +50,9 @@ func main() {
 		log.Fatal("Failed to connect to Redis:", err)
 	}
 
+	// Start the Redis Pub/Sub listener in the background
+	go listenToRedisPubSub()
+
 	// Set up Kafka Writer (Producer) to send messages to the worker
 	kafkaWriter = &kafka.Writer{
 		Addr:     kafka.TCP("kafka:9092"),
@@ -139,4 +142,22 @@ func getLatestLocation(w http.ResponseWriter, r *http.Request) {
 	}
 
 	fmt.Fprintf(w, "Latest location for %s - Lat: %s, Lon: %s (Served instantly from Redis!)\n", vehicleID, data["lat"], data["lon"])
+}
+
+// Background listener for Redis Pub/Sub
+func listenToRedisPubSub() {
+	ctx := context.Background()
+	pubsub := rdb.Subscribe(ctx, "live-locations")
+	defer pubsub.Close()
+
+	fmt.Println("📡 API is now listening to Redis Pub/Sub channel: live-locations")
+
+	// Create a channel to receive the messages
+	ch := pubsub.Channel()
+
+	for msg := range ch {
+		fmt.Printf("🔥 API heard broadcast: %s\n", msg.Payload)
+		// Later, instead of just printing this,
+		// we will push it through the WebSockets to the browsers!
+	}
 }

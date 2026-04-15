@@ -72,6 +72,10 @@ func main() {
 			log.Printf("⚠️ Redis Error for %s: %v\n", loc.VehicleID, err)
 		}
 
-		fmt.Printf("✅ Processed and saved location for %s\n", loc.VehicleID)
+		// We convert the location back to JSON so the API can easily read it
+		payload, _ := json.Marshal(loc)
+		rdb.Publish(ctx, "live-locations", payload)
+
+		fmt.Printf("✅ Processed, saved and broadcasted location for %s\n", loc.VehicleID)
 	}
 }
